@@ -90,12 +90,12 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        mvn deploy:deploy-file -s "${{ github.workspace }}/settings.xml" "-DrepositoryId=github" "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" "-Dfile=metricshub-jre-${{ env.JRE_OS_NAME }}.zip" "-DgroupId=org.sentrysoftware" "-DartifactId=metricshub-jre-${{ env.JRE_OS_NAME }}" "-Dversion=${{ env.JRE_VERSION }}" "-Dpackaging=jlink" "-Ddescription=MetricsHub JRE for ${{ runner.os }}"
+        mvn deploy:deploy-file -s "${{ github.workspace }}/settings.xml" "-DrepositoryId=github" "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" "-Dfile=metricshub-jre-${{ env.JRE_OS_NAME }}.zip" "-DgroupId=org.metricshub" "-DartifactId=metricshub-jre-${{ env.JRE_OS_NAME }}" "-Dversion=${{ env.JRE_VERSION }}" "-Dpackaging=jlink" "-Ddescription=MetricsHub JRE for ${{ runner.os }}"
 
     - name: Get Deployed Package Version ID from Versions
       id: version-id
       run: |
-        curl -X GET -H "Authorization: Bearer ${{env.GITHUB_TOKEN}}" https://api.github.com/orgs/${{ env.GITHUB_ORGANIZATION }}/packages/maven/org.sentrysoftware.metricshub-jre-${{ env.JRE_OS_NAME }}/versions >> $HOME/versionIds.json
+        curl -X GET -H "Authorization: Bearer ${{env.GITHUB_TOKEN}}" https://api.github.com/orgs/${{ env.GITHUB_ORGANIZATION }}/packages/maven/org.metricshub.metricshub-jre-${{ env.JRE_OS_NAME }}/versions >> $HOME/versionIds.json
         echo "versionId=$(grep -B1 '"name": "${{ env.JRE_VERSION }}"' $HOME/versionIds.json | grep '"id":' | awk -F': ' '{print $2}' | tr -d ',')" >> $GITHUB_OUTPUT
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -110,7 +110,7 @@ jobs:
       uses: actions/delete-package-versions@v4
       with:
         package-version-ids: ${{ steps.version-id.outputs.versionId }}
-        package-name: org.sentrysoftware.metricshub-jre-${{ env.JRE_OS_NAME }}
+        package-name: org.metricshub.metricshub-jre-${{ env.JRE_OS_NAME }}
         package-type: maven
       if: always() && (steps.perform.outcome == 'failure') && (steps.version-id.outputs.versionId != '')
 
