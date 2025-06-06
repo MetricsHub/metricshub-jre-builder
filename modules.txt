@@ -23,6 +23,7 @@ jdk.jfr
 jdk.management.agent
 jdk.management.jfr
 jdk.management
+jdk.naming.rmi
 jdk.net
 jdk.security.auth
 jdk.unsupported
