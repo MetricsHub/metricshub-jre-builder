@@ -5,7 +5,7 @@ This project uses the [JLink tool](https://docs.oracle.com/en/java/javase/17/doc
 ## Structure
 
 * **.java-version**: Specifies the JDK version to be used to create the JRE with JLink. The JRE will have the same version.
-* **Dockerfile**: Builds the MetricsHub JRE Docker Image, which is used as based image for MetricsHub.
+* **Dockerfile**: Builds the MetricsHub JRE Docker Image, which is used as **base** image for MetricsHub.
 * **modules.txt**: Lists all JRE modules required to run MetricsHub.
 
 ## Usage with Maven
