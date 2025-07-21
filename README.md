@@ -16,7 +16,7 @@ To integrate the MetricsHub Windows JRE into the MetricsHub Windows distribution
 	<dependency>
 		<groupId>org.metricshub</groupId>
 		<artifactId>metricshub-jre-windows</artifactId>
-		<version>17.0.15_6</version>
+		<version>17.0.16_8</version>
 		<type>zip</type>
 	</dependency>
 ```
@@ -27,7 +27,7 @@ To integrate the MetricsHub Linux JRE into the MetricsHub Linux distributions (D
 	<dependency>
 		<groupId>org.metricshub</groupId>
 		<artifactId>metricshub-jre-linux</artifactId>
-		<version>17.0.15_6</version>
+		<version>17.0.16_8</version>
 		<type>zip</type>
 	</dependency>
 ```
@@ -43,5 +43,5 @@ jpackage --runtime-image jre_directory $other_jpackage_args
 To use the MetricsHub Linux JRE as base image in Docker, add the following `FROM` instruction to the _Dockerfile_:
 
 ```Dockerfile
-FROM ghcr.io/metricshub/metricshub-jre-builder:17.0.15_6
+FROM ghcr.io/metricshub/metricshub-jre-builder:17.0.16_8
 ```
