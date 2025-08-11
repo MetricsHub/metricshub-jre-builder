@@ -17,6 +17,7 @@ To integrate the MetricsHub Windows JRE into the MetricsHub Windows distribution
 		<groupId>org.metricshub</groupId>
 		<artifactId>metricshub-jre-windows</artifactId>
 		<version>17.0.15_6</version>
+		<classifier>x64</classifier>
 		<type>zip</type>
 	</dependency>
 ```
@@ -28,6 +29,7 @@ To integrate the MetricsHub Linux JRE into the MetricsHub Linux distributions (D
 		<groupId>org.metricshub</groupId>
 		<artifactId>metricshub-jre-linux</artifactId>
 		<version>17.0.15_6</version>
+		<classifier>x86_64|aarch64</classifier>
 		<type>zip</type>
 	</dependency>
 ```
