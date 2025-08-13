@@ -32,7 +32,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
 
@@ -54,7 +54,7 @@ jobs:
           echo "NEXT_VERSION_SEMVER=${{ steps.get_release.outputs.release }}" >> $GITHUB_ENV
           NEXT_VERSION=$(echo ${{ steps.get_release.outputs.release }} | sed 's/+/_/g')
           echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
-          echo "BRANCH_NAME=feature/v${NEXT_VERSION}" >> $GITHUB_ENV
+          echo "BRANCH_NAME=release/v${NEXT_VERSION}" >> $GITHUB_ENV
           echo "create_pr=true" >> $GITHUB_OUTPUT
         else
           echo "Release ${{ steps.get_release.outputs.release }} is the same as ${current_version}"

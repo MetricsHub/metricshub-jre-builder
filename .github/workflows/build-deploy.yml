@@ -8,6 +8,30 @@ on:
         description: Deploy JRE to Maven and Docker Repositories
         required: true
         default: false
+      suffix:
+        type: string
+        description: Suffix for the version tag appended to the JRE version
+        required: false
+        default: ''
+    outputs:
+      jreVersion:
+        description: The version of the JRE built and deployed
+        value: ${{ jobs.detect-version.outputs.jreVersion }}
+      jreMavenVersion:
+        description: The version of the JRE built used to deploy to Maven repository
+        value: ${{ jobs.detect-version.outputs.jreMavenVersion }}
+      dockerRegistry:
+        description: The Docker registry where the image is pushed (eg. ghcr.io)
+        value: ghcr.io
+      dockerRepository:
+        description: The Docker repository where the image is pushed (eg. metricshub-jre-builder)
+        value: ${{ jobs.build-jre-docker.outputs.dockerRepository }}
+      dockerTag:
+        description: The tag part of the Docker image built and deployed (eg. 17.0.9_1)
+        value: ${{ jobs.build-jre-docker.outputs.dockerTag }}
+      dockerImageTag:
+        description: The assembled image tag of the Docker image built and deployed (eg. ghcr.io/metricshub-jre-builder:17.0.9_1)
+        value: ${{ jobs.build-jre-docker.outputs.dockerImageTag }}
 
   workflow_dispatch:
     inputs:
@@ -16,10 +40,67 @@ on:
         description: Deploy JRE to Maven and Docker Repositories
         required: true
         default: false
+      suffix:
+        type: string
+        description: Suffix for the version tag appended to the JRE version, SNAPSHOT alread appended for builds on non-default branche (main)
+        required: false
+        default: ''
 
 jobs:
+  detect-version:
+    name: Detect JRE Version
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Read JDK Version
+      run: |
+        JDK_VERSION=$(cat .java-version)
+        echo "JDK_VERSION=${JDK_VERSION}" >> $GITHUB_ENV
+
+    - name: Set JRE Version
+      id: detect-version
+      run: |
+        JRE_VERSION=$(echo "${{ env.JDK_VERSION }}" | sed 's/+/_/g')
+        if [ -n "${{ inputs.suffix }}" ]; then
+          JRE_VERSION="${JRE_VERSION}-${{ inputs.suffix }}"
+        fi
+        JRE_MAVEN_VERSION=${JRE_VERSION}
+        if [ "${GITHUB_REF##*/}" != "${{ github.event.repository.default_branch }}" ]; then
+          JRE_MAVEN_VERSION=${JRE_VERSION}-SNAPSHOT
+        fi
+        echo "jdkVersion=${{ env.JDK_VERSION }}" >> $GITHUB_OUTPUT
+        echo "jreVersion=${JRE_VERSION}" >> $GITHUB_OUTPUT
+        echo "jreMavenVersion=${JRE_MAVEN_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Summary
+      run: |
+        echo "Detected JDK version ${{ steps.detect-version.outputs.jdkVersion }}"
+        echo "Computed JRE version ${{ steps.detect-version.outputs.jreVersion }}"
+        echo "Computed JRE version for Maven ${{ steps.detect-version.outputs.jreMavenVersion }}"
+        if [ -z "${{ steps.detect-version.outputs.jdkVersion }}" ]; then
+          echo "Cannot read JDK Version."
+          exit 1
+        fi
+        if [ -z "${{ steps.detect-version.outputs.jreVersion }}" ]; then
+          echo "JRE version output is empty. Stopping workflow."
+          exit 1
+        fi
+        if [ -z "${{ steps.detect-version.outputs.jreMavenVersion }}" ]; then
+          echo "JRE version for Maven output is empty. Stopping workflow."
+          exit 1
+        fi
+
+    outputs:
+      jdkVersion: ${{ steps.detect-version.outputs.jdkVersion }}
+      jreVersion: ${{ steps.detect-version.outputs.jreVersion }}
+      jreMavenVersion: ${{ steps.detect-version.outputs.jreMavenVersion }}
+
   build-jre:
     name: Build JRE
+    needs: detect-version
 
     runs-on: ${{ matrix.os }}
 
@@ -33,94 +114,144 @@ jobs:
         # https://github.com/actions/runner-images
         os: [ ubuntu-24.04, ubuntu-24.04-arm, windows-2025 ]
 
+    env:
+      JDK_VERSION: ${{ needs.detect-version.outputs.jdkVersion }}
+      JRE_VERSION: ${{ needs.detect-version.outputs.jreMavenVersion }}
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Read JDK Version
-      run: |
-        echo "JDK_VERSION=$(cat .java-version)" >> $GITHUB_ENV
-        echo "JDK_VERSION=$(cat .java-version)" >> $env:GITHUB_ENV
+      uses: actions/checkout@v5
 
     - name: Set up JDK ${{ env.JDK_VERSION }}
       uses: actions/setup-java@v4
       with:
-        java-version-file: .java-version
         distribution: temurin
         java-package: jdk
+        java-version: ${{ env.JDK_VERSION }}
         server-id: github
         settings-path: ${{ github.workspace }}
 
-    - name: Build Linux JRE ${{ env.JDK_VERSION }}
+    - name: Build Linux JRE ${{ env.JRE_VERSION }}
       if: runner.os == 'Linux'
       shell: bash
       run: |
         jlinkModules=$(cat modules.txt | tr '\n' ',')
         jlink --strip-debug --no-header-files --no-man-pages --add-modules $jlinkModules --output jre-linux
-        JRE_VERSION=$(echo "${{ env.JDK_VERSION }}" | sed 's/+/_/g')
-        if [ "${GITHUB_REF##*/}" != "${{ github.event.repository.default_branch }}" ]; then
-          JRE_VERSION=${JRE_VERSION}-SNAPSHOT
-        fi
-        echo "JRE_VERSION=${JRE_VERSION}" >> $GITHUB_ENV
-        echo "JRE_OS_NAME=linux" >> ${GITHUB_ENV}
+        echo "JRE_OS_NAME=linux" >> $GITHUB_ENV
         ARCH=$(uname -m)
         echo "JRE_ARCH=${ARCH}" >> $GITHUB_ENV
         cd jre-linux/ && zip -r ../metricshub-jre-linux-${ARCH}.zip .
 
-    - name: Build Windows JRE ${{ env.JDK_VERSION }}
+    - name: Build Windows JRE ${{ env.JRE_VERSION }}
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         $jlinkModules=(Get-Content modules.txt) -join ','
         jlink --strip-debug --no-header-files --no-man-pages --add-modules $jlinkModules --output jre-windows
-        $JRE_VERSION = $env:JDK_VERSION -replace '\+', '_'
-        if (($env:GITHUB_REF -split '/' | Select-Object -Last 1) -ne '${{ github.event.repository.default_branch }}') {
-          $JRE_VERSION = "${JRE_VERSION}-SNAPSHOT"
-        }
-        echo "JRE_VERSION=$JRE_VERSION" >> $env:GITHUB_ENV
+        $jreArch = $env:PROCESSOR_ARCHITECTURE.ToLower()
         echo "JRE_OS_NAME=windows" >> $env:GITHUB_ENV
-        echo "JRE_ARCH=x64" >> $env:GITHUB_ENV
-        Compress-Archive -Path jre-windows\* -DestinationPath metricshub-jre-windows-x64.zip
+        echo "JRE_ARCH=$jreArch" >> $env:GITHUB_ENV
+        $archiveName="metricshub-jre-windows-$jreArch.zip"
+        Compress-Archive -Path jre-windows\* -DestinationPath $archiveName
 
     - name: Attach JRE Archive to the Build
       uses: actions/upload-artifact@v4
       with:
-        name: metricshub-jre-${{ env.JRE_VERSION }}-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}
+        name: metricshub-jre-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}
         path: metricshub-jre-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}.zip
 
+  deploy-jre:
+    name: Deploy JRE
+    needs:
+      - detect-version
+      - build-jre
+    if: ${{ inputs.deploy }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    env:
+      JDK_VERSION: ${{ needs.detect-version.outputs.jdkVersion }}
+      JRE_VERSION: ${{ needs.detect-version.outputs.jreMavenVersion }}
+
+    steps:
+    - name: Prepare workspace
+      run: |
+        rm -fr ./jre
+        mkdir -p ./jre
+
+    - name: Set up JDK ${{ env.JDK_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-package: jdk
+        java-version: ${{ env.JDK_VERSION }}
+        server-id: github
+        settings-path: ${{ github.workspace }}
+
+    - name: Download Linux x86_64 Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+        name: metricshub-jre-linux-x86_64
+        path: ./jre
+
+    - name: Download Linux aarch64 Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+        name: metricshub-jre-linux-aarch64
+        path: ./jre
+
+    - name: Download Windows amd64 Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+        name: metricshub-jre-windows-amd64
+        path: ./jre
+
+    - name: Control downloaded files
+      run: |
+        ls -al ./jre/
+        missing=0
+        for file in metricshub-jre-linux-x86_64.zip metricshub-jre-linux-aarch64.zip metricshub-jre-windows-amd64.zip; do
+          if [ ! -f "./jre/$file" ]; then
+            echo "Missing $file"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "One or more required JRE files are missing. Stopping workflow."
+          exit 1
+        fi
+
     - name: Maven Deploy ${{ env.JRE_VERSION }}
-      id: perform
-      if: ${{ inputs.deploy }}
       env:
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        JRE_VERSION: ${{ env.JRE_VERSION }}
       run: |
-        mvn deploy:deploy-file -s "${{ github.workspace }}/settings.xml" "-DrepositoryId=github" "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" "-Dfile=metricshub-jre-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}.zip" "-DgroupId=org.metricshub" "-DartifactId=metricshub-jre-${{ env.JRE_OS_NAME }}" "-Dversion=${{ env.JRE_VERSION }}" "-Dclassifier=${{ env.JRE_ARCH }}" "-Dpackaging=jlink" "-Ddescription=MetricsHub JRE for ${{ runner.os }} ${{ env.JRE_ARCH }}"
-
-    - name: Get Deployed Package Version ID from Versions
-      id: version-id
-      run: |
-        curl -X GET -H "Authorization: Bearer ${{env.GITHUB_TOKEN}}" https://api.github.com/orgs/${{ env.GITHUB_ORGANIZATION }}/packages/maven/org.metricshub.metricshub-jre-${{ env.JRE_OS_NAME }}/versions >> $HOME/versionIds.json
-        echo "versionId=$(grep -B1 '"name": "${{ env.JRE_VERSION }}"' $HOME/versionIds.json | grep '"id":' | awk -F': ' '{print $2}' | tr -d ',')" >> $GITHUB_OUTPUT
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-        GITHUB_ORGANIZATION: ${{ github.repository_owner }}
-      if: always() && (steps.perform.outcome == 'failure')
-
-    - name: Deployed Version ID
-      run: echo "The deployed Version ID is ${{ steps.version-id.outputs.versionId }}"
-      if: always() && (steps.perform.outcome == 'failure')
-
-    - name: Package ${{ env.JRE_VERSION }} removal on failure
-      uses: actions/delete-package-versions@v4
-      with:
-        package-version-ids: ${{ steps.version-id.outputs.versionId }}
-        package-name: org.metricshub.metricshub-jre-${{ env.JRE_OS_NAME }}
-        package-type: maven
-      if: always() && (steps.perform.outcome == 'failure') && (steps.version-id.outputs.versionId != '')
+        echo "Deploying version var $JRE_VERSION , env ${{ env.JRE_VERSION }} , output ${{ needs.detect-version.outputs.jreMavenVersion }}"
+        mvn deploy:deploy-file \
+          -s "${{ github.workspace }}/settings.xml" \
+          "-DrepositoryId=github" \
+          "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" \
+          "-Dfile=./jre/metricshub-jre-windows-amd64.zip" \
+          "-Dfiles=./jre/metricshub-jre-linux-x86_64.zip,./jre/metricshub-jre-linux-aarch64.zip" \
+          "-DgroupId=org.metricshub" \
+          "-DartifactId=metricshub-jre" \
+          "-Dversion=${{ env.JRE_VERSION }}" \
+          "-Dclassifier=windows-amd64" \
+          "-Dclassifiers=linux-x86_64,linux-aarch64" \
+          "-Dpackaging=zip" \
+          "-Dtypes=zip,zip" \
+          "-Ddescription=MetricsHub JRE"
 
   build-jre-docker:
     name: Build JRE (docker)
+    needs: detect-version
 
     runs-on: ubuntu-latest
 
@@ -128,9 +259,13 @@ jobs:
       contents: read
       packages: write
 
+    env:
+      JDK_VERSION: ${{ needs.detect-version.outputs.jdkVersion }}
+      JRE_VERSION: ${{ needs.detect-version.outputs.jreVersion }}
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     -
       name: Login to GitHub Container Registry
@@ -150,30 +285,79 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     -
-      # Docker Images Does Not Contains the plus (+) sign
+      # Docker Images Cannot Not Contains the plus (+) sign
       # Must be replaced with underscore (_)
       name: Prepare Environment Variables
       run: |
-        export JDK_VERSION=$(cat .java-version)
-        echo "JDK_VERSION=${JDK_VERSION}" | sed 's/+/_/g' >> $GITHUB_ENV
-        echo "REPO_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
+        REPO_FULLNAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
+        REPO_NAME=${REPO_FULLNAME#${REPO_OWNER}/}
+        export JDK_IMAGE_VERSION=$(echo ${{ env.JDK_VERSION }} | sed 's/+/_/g')
+        export IMAGE_TAG=ghcr.io/${REPO_OWNER}/${REPO_NAME}:${JRE_VERSION}
+        echo "REPO_OWNER=${REPO_OWNER}" >> $GITHUB_ENV
+        echo "REPO_NAME=${REPO_NAME}" >> $GITHUB_ENV
+        echo "JDK_IMAGE_VERSION=${JDK_IMAGE_VERSION}" >> $GITHUB_ENV
+        echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
 
-    - name: Build and Push ${{ env.JDK_VERSION }}
+    - name: Build and Push ${{ env.JDK_VERSION }} from ${{ env.JDK_IMAGE_VERSION }} as ${{ env.JRE_VERSION }}
       id: push
       uses: docker/build-push-action@v6
       with:
         build-args: |
-          JDK_VERSION=${{ env.JDK_VERSION }}
+          JDK_VERSION=${{ env.JDK_IMAGE_VERSION }}
         platforms: linux/amd64,linux/arm64
         push: ${{ inputs.deploy }}
         tags: |
-          ghcr.io/${{ env.REPO_NAME }}:latest
-          ghcr.io/${{ env.REPO_NAME }}:${{ env.JDK_VERSION }}
+          ${{ env.IMAGE_TAG }}
 
-    - name: Delete Docker Image on Failure
+    outputs:
+      dockerRegistry: ghcr.io/${{ env.REPO_OWNER }}
+      dockerRepository: ${{ env.REPO_NAME }}
+      dockerTag: ${{ env.JRE_VERSION }}
+      dockerImageTag: ${{ env.IMAGE_TAG }}
+
+  cancel-deploy:
+    name: Cancel Deployments on Failure
+    needs:
+      - deploy-jre
+      - build-jre-docker
+    if: always() && (needs.deploy-jre.result == 'failure' || needs.build-jre-docker.result == 'failure')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    env:
+      JRE_VERSION: ${{ needs.detect-version.outputs.jreVersion }}
+      DOCKER_TAG: ${{ needs.build-jre-docker.outputs.dockerTag }}
+
+    steps:
+    - name: Get Deployed Package Version ID
+      id: version-id
+      if: always()
+      run: |
+        curl -X GET -H "Authorization: Bearer ${{env.GITHUB_TOKEN}}" https://api.github.com/orgs/${{ env.GITHUB_ORGANIZATION }}/packages/maven/org.metricshub.metricshub-jre/versions >> $HOME/versionIds.json
+        echo "versionId=$(grep -B1 '"name": "${{ env.JRE_VERSION }}"' $HOME/versionIds.json | grep '"id":' | awk -F': ' '{print $2}' | tr -d ',')" >> $GITHUB_OUTPUT
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_ORGANIZATION: ${{ github.repository_owner }}
+
+    - name: Deployed Version IDs
+      if: always()
+      run: echo "The deployed Version ID is ${{ steps.version-id.outputs.versionId }}"
+
+    - name: Maven Package ${{ env.JRE_VERSION }} removal on failure
+      if: always() && (steps.version-id-linux.outputs.versionId != '')
+      uses: actions/delete-package-versions@v4
+      with:
+        package-version-ids: ${{ steps.version-id.outputs.versionId }}
+        package-name: org.metricshub.metricshub-jre
+        package-type: maven
+
+    - name: Docker Image ${{ env.DOCKER_TAG }} removal on Failure
       uses: chipkent/action-cleanup-package@v1.0.3
       with:
         package-name: ${{ github.event.repository.name }}
-        tag: ghcr.io/${{ env.REPO_NAME }}:latest,ghcr.io/${{ env.REPO_NAME }}:${{ env.JDK_VERSION }}
+        tag: ${{ env.DOCKER_TAG }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
-      if: always() && (steps.push.outcome == 'failure')
