@@ -29,7 +29,9 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Runner images and versions are defined here:
+        # https://github.com/actions/runner-images
+        os: [ ubuntu-24.04, ubuntu-24.04-arm, windows-2025 ]
 
     steps:
     - name: Checkout code
@@ -60,8 +62,10 @@ jobs:
           JRE_VERSION=${JRE_VERSION}-SNAPSHOT
         fi
         echo "JRE_VERSION=${JRE_VERSION}" >> $GITHUB_ENV
-        echo "JRE_OS_NAME=linux">>${GITHUB_ENV}
-        cd jre-linux/ && zip -r ../metricshub-jre-linux.zip .
+        echo "JRE_OS_NAME=linux" >> ${GITHUB_ENV}
+        ARCH=$(uname -m)
+        echo "JRE_ARCH=${ARCH}" >> $GITHUB_ENV
+        cd jre-linux/ && zip -r ../metricshub-jre-linux-${ARCH}.zip .
 
     - name: Build Windows JRE ${{ env.JDK_VERSION }}
       if: runner.os == 'Windows'
@@ -75,13 +79,14 @@ jobs:
         }
         echo "JRE_VERSION=$JRE_VERSION" >> $env:GITHUB_ENV
         echo "JRE_OS_NAME=windows" >> $env:GITHUB_ENV
-        Compress-Archive -Path jre-windows\* -DestinationPath metricshub-jre-windows.zip
+        echo "JRE_ARCH=x64" >> $env:GITHUB_ENV
+        Compress-Archive -Path jre-windows\* -DestinationPath metricshub-jre-windows-x64.zip
 
     - name: Attach JRE Archive to the Build
       uses: actions/upload-artifact@v4
       with:
-        name: metricshub-jre-${{ env.JRE_VERSION }}-${{ env.JRE_OS_NAME }}
-        path: metricshub-jre-${{ env.JRE_OS_NAME }}.zip
+        name: metricshub-jre-${{ env.JRE_VERSION }}-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}
+        path: metricshub-jre-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}.zip
 
     - name: Maven Deploy ${{ env.JRE_VERSION }}
       id: perform
@@ -90,7 +95,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        mvn deploy:deploy-file -s "${{ github.workspace }}/settings.xml" "-DrepositoryId=github" "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" "-Dfile=metricshub-jre-${{ env.JRE_OS_NAME }}.zip" "-DgroupId=org.metricshub" "-DartifactId=metricshub-jre-${{ env.JRE_OS_NAME }}" "-Dversion=${{ env.JRE_VERSION }}" "-Dpackaging=jlink" "-Ddescription=MetricsHub JRE for ${{ runner.os }}"
+        mvn deploy:deploy-file -s "${{ github.workspace }}/settings.xml" "-DrepositoryId=github" "-Durl=https://maven.pkg.github.com/${{ env.GITHUB_REPOSITORY }}" "-Dfile=metricshub-jre-${{ env.JRE_OS_NAME }}-${{ env.JRE_ARCH }}.zip" "-DgroupId=org.metricshub" "-DartifactId=metricshub-jre-${{ env.JRE_OS_NAME }}" "-Dversion=${{ env.JRE_VERSION }}" "-Dclassifier=${{ env.JRE_ARCH }}" "-Dpackaging=jlink" "-Ddescription=MetricsHub JRE for ${{ runner.os }} ${{ env.JRE_ARCH }}"
 
     - name: Get Deployed Package Version ID from Versions
       id: version-id
