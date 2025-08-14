@@ -311,8 +311,8 @@ jobs:
           ${{ env.IMAGE_TAG }}
 
     outputs:
-      dockerRegistry: ghcr.io/${{ env.REPO_OWNER }}
-      dockerRepository: ${{ env.REPO_NAME }}
+      dockerRegistry: ghcr.io
+      dockerRepository: ${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}
       dockerTag: ${{ env.JRE_VERSION }}
       dockerImageTag: ${{ env.IMAGE_TAG }}
 
