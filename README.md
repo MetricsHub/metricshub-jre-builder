@@ -15,21 +15,35 @@ To integrate the MetricsHub Windows JRE into the MetricsHub Windows distribution
 ```xml
 	<dependency>
 		<groupId>org.metricshub</groupId>
-		<artifactId>metricshub-jre-windows</artifactId>
+		<artifactId>metricshub-jre</artifactId>
 		<version>17.0.16_8</version>
-		<classifier>x64</classifier>
+		<classifier>windows-amd64</classifier>
 		<type>zip</type>
 	</dependency>
 ```
 
 To integrate the MetricsHub Linux JRE into the MetricsHub Linux distributions (Debian and RHEL), add the following dependency in the `metricshub-debian` and `metricshub-rhel` modules:
 
+On x86_64 architectures:
+
 ```xml
 	<dependency>
 		<groupId>org.metricshub</groupId>
-		<artifactId>metricshub-jre-linux</artifactId>
+		<artifactId>metricshub-jre</artifactId>
 		<version>17.0.16_8</version>
-		<classifier>x86_64|aarch64</classifier>
+		<classifier>linux-x86_64</classifier>
+		<type>zip</type>
+	</dependency>
+```
+
+On ARM architectures:
+
+```xml
+	<dependency>
+		<groupId>org.metricshub</groupId>
+		<artifactId>metricshub-jre</artifactId>
+		<version>17.0.16_8</version>
+		<classifier>linux-aarch64</classifier>
 		<type>zip</type>
 	</dependency>
 ```
