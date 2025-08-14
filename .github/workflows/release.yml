@@ -18,7 +18,7 @@ on:
 
 jobs:
   verify-release:
-    # Bloc automatic release if the tag already exists
+    # Stop automatic release if the tag already exists
     name: Verify Release
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' }}
@@ -30,18 +30,17 @@ jobs:
     - name: Get tag name
       id: get-tag
       run: |
-        echo "tagName=$(cat .java-version | sed 's/+/_/g')" >> $GITHUB_OUTPUT
-        RELEASES=$(gh release list --limit 10)
-        if echo "$RELEASES" | grep -q "v${{ steps.get-tag.outputs.tagName }}"; then
-          error "Release v${{ steps.get-tag.outputs.tagName }} already exists."
-        else
-          echo "tagExists=false" >> $GITHUB_OUTPUT
+        tagName=$(cat .java-version)
+        releases=$(gh release list --limit 10)
+        if echo "$releases" | grep -F -q -- "$tagName"; then
+          error "Release v${tagName} already exists."
         fi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-deploy:
     name: Build and Deploy
+    needs: verify-release
     uses: ./.github/workflows/build-deploy.yml
     with:
       deploy: true
