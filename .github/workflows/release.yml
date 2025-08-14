@@ -5,32 +5,83 @@ on:
     branches:
       - 'main'
 
+  workflow_dispatch:
+    inputs:
+      latest:
+        description: Tag the latest release
+        required: false
+        default: 'false'
+      suffix:
+        description: Suffix for the version tag appended to the JRE version, SNAPSHOT already appended for builds on non-default branches (main)
+        required: true
+        default: 'rc1'
+
 jobs:
+  verify-release:
+    # Bloc automatic release if the tag already exists
+    name: Verify Release
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Get tag name
+      id: get-tag
+      run: |
+        echo "tagName=$(cat .java-version | sed 's/+/_/g')" >> $GITHUB_OUTPUT
+        RELEASES=$(gh release list --limit 10)
+        if echo "$RELEASES" | grep -q "v${{ steps.get-tag.outputs.tagName }}"; then
+          error "Release v${{ steps.get-tag.outputs.tagName }} already exists."
+        else
+          echo "tagExists=false" >> $GITHUB_OUTPUT
+        fi
+
   build-deploy:
     name: Build and Deploy
     uses: ./.github/workflows/build-deploy.yml
     with:
       deploy: true
+      suffix: ${{ inputs.suffix || '' }}
+
+  tag-latest:
+    name: Tag ${{ needs.build-deploy.outputs.dockerTag }} as Latest Release
+    needs: build-deploy
+    if: ${{ inputs.latest == 'true' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Search latest semver Image
+      uses: tinact/docker.image-retag@1.0.3
+      with:
+        image_name: ${{ needs.build-deploy.outputs.dockerRepository }}
+        image_old_tag: ${{ needs.build-deploy.outputs.dockerTag }}
+        image_new_tag: latest
+        registry: ${{ needs.build-deploy.outputs.dockerRegistry }}
+        registry_username: ${{ secrets.GITHUB_ACTOR }}
+        registry_password: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     name: Release
     needs: build-deploy
     runs-on: ubuntu-latest
 
+    env:
+      TAG_NAME: v${{ needs.verify-release.outputs.tagName }}
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Configure Git User
       run: |
         git config user.email "actions@github.com"
         git config user.name "GitHub Actions"
-
-    - name: Read JDK Version (Release Name)
-      run: |
-        export JDK_VERSION=$(cat .java-version)
-        echo JDK_VERSION=$JDK_VERSION >> $GITHUB_ENV
-        echo TAG_NAME=v$JDK_VERSION >> $GITHUB_ENV
 
     - name: Clean up existing ${{ env.TAG_NAME }} tags
       run: |
