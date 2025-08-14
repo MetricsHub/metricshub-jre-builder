@@ -21,7 +21,6 @@ jobs:
     # Stop automatic release if the tag already exists
     name: Verify Release
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' }}
 
     steps:
     - name: Checkout code
@@ -30,13 +29,21 @@ jobs:
     - name: Get tag name
       id: get-tag
       run: |
-        tagName=$(cat .java-version)
+        tagName=v$(cat .java-version)
+        if [ "${{ inputs.suffix }}" != "" ]; then
+          tagName=$tagName-${{ inputs.suffix }}
+        fi
         releases=$(gh release list --limit 10)
         if echo "$releases" | grep -F -q -- "$tagName"; then
-          error "Release v${tagName} already exists."
+          error "Release ${tagName} already exists."
         fi
+        echo "Tag is $tagName"
+        echo "tagName=$tagName" >> $GITHUB_OUTPUT
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      tagName: ${{ steps.get-tag.outputs.tagName }}
 
   build-deploy:
     name: Build and Deploy
@@ -47,16 +54,24 @@ jobs:
       suffix: ${{ inputs.suffix || '' }}
 
   tag-latest:
-    name: Tag ${{ needs.build-deploy.outputs.dockerTag }} as Latest Release
+    name: Set Latest Release
     needs: build-deploy
-    if: ${{ inputs.latest == 'true' }}
+    if: ${{ inputs.latest == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write
+      contents: read
       packages: write
 
     steps:
+    -
+      name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Search latest semver Image
       uses: tinact/docker.image-retag@1.0.3
       with:
@@ -64,18 +79,28 @@ jobs:
         image_old_tag: ${{ needs.build-deploy.outputs.dockerTag }}
         image_new_tag: latest
         registry: ${{ needs.build-deploy.outputs.dockerRegistry }}
-        registry_username: ${{ secrets.GITHUB_ACTOR }}
+        registry_username: ${{ github.actor }}
         registry_password: ${{ secrets.GITHUB_TOKEN }}
 
   release:
-    name: Release
-    needs: build-deploy
+    name: Create GitHub Release
+    needs:
+      - verify-release
+      - build-deploy
     runs-on: ubuntu-latest
 
     env:
-      TAG_NAME: v${{ needs.verify-release.outputs.tagName }}
+      DOCKER_TAG: ${{ needs.build-deploy.outputs.dockerTag }}
+      JRE_MAVEN_VERSION: ${{ needs.build-deploy.outputs.jreMavenVersion }}
+      TAG_NAME: ${{ needs.verify-release.outputs.tagName }}
 
     steps:
+    - name: Control tag
+      run: |
+        if [ -z "${{ env.TAG_NAME }}" ]; then
+          error "Missing tag name for release"
+        fi
+
     - name: Checkout code
       uses: actions/checkout@v5
 
@@ -93,6 +118,13 @@ jobs:
       run: |
         git tag -a ${{ env.TAG_NAME }} -m "Release ${{ env.TAG_NAME }}"
         git push origin ${{ env.TAG_NAME }}
+
+    - name: Create release notes
+      run: |
+        CURRENT_VERSION=$(cat .java-version | sed 's/+/_/g')
+        sed -i "s/:${CURRENT_VERSION}/:${{ env.DOCKER_TAG }}/g" README.md
+        sed -i "s/>${CURRENT_VERSION}/>${{ env.JRE_MAVEN_VERSION }}/g" README.md
+        echo "Replace ${CURRENT_VERSION} with ${{ env.JRE_MAVEN_VERSION }} in README to be used as release notes"
 
     - name: Create a GitHub Release
       uses: softprops/action-gh-release@v1
